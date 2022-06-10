@@ -82,7 +82,7 @@ impl<W: for<'a> MakeWriter<'a> + 'static> BunyanFormattingLayer<W> {
         Self {
             make_writer,
             name,
-            pid: std::process::id(),
+            pid: get_pid(),
             hostname: get_hostname(),
             bunyan_version: 0,
             default_fields,
@@ -325,4 +325,14 @@ fn get_hostname() -> String {
 #[cfg(not(target_arch = "wasm32"))]
 fn get_hostname() -> String {
     gethostname::gethostname().to_string_lossy().into_owned()
+}
+
+#[cfg(target_arch = "wasm32")]
+fn get_pid() -> u32 {
+    u32::MAX
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn get_pid() -> u32 {
+    std::process::id()
 }
