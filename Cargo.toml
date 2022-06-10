@@ -30,7 +30,7 @@ log = "0.4.8"
 serde_json = { version = "1.0.52" }
 serde = "1.0.106"
 tracing-core = "0.1.10"
-time = { version = "0.3", default-features = false, features = ["formatting"] }
+chrono = "0.4.19"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 gethostname = "0.2.1"

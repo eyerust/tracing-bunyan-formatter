@@ -1,10 +1,10 @@
 use crate::storage_layer::JsonStorage;
+use chrono::Utc;
 use serde::ser::{SerializeMap, Serializer};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::fmt;
 use std::io::Write;
-use time::format_description::well_known::Rfc3339;
 use tracing::{Event, Id, Subscriber};
 use tracing_core::metadata::Level;
 use tracing_core::span::Attributes;
@@ -101,9 +101,7 @@ impl<W: for<'a> MakeWriter<'a> + 'static> BunyanFormattingLayer<W> {
         map_serializer.serialize_entry(LEVEL, &to_bunyan_level(level))?;
         map_serializer.serialize_entry(HOSTNAME, &self.hostname)?;
         map_serializer.serialize_entry(PID, &self.pid)?;
-        if let Ok(time) = &time::OffsetDateTime::now_utc().format(&Rfc3339) {
-            map_serializer.serialize_entry(TIME, time)?;
-        }
+        map_serializer.serialize_entry(TIME, &Utc::now().to_rfc3339())?;
         Ok(())
     }
 
