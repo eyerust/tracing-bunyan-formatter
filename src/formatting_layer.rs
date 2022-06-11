@@ -14,38 +14,18 @@ use tracing_subscriber::layer::Context;
 use tracing_subscriber::registry::SpanRef;
 use tracing_subscriber::Layer;
 
-/// Keys for core fields of the Bunyan format (https://github.com/trentm/node-bunyan#core-fields)
-const BUNYAN_VERSION: &str = "v";
-const LEVEL: &str = "level";
-const NAME: &str = "name";
-const HOSTNAME: &str = "hostname";
-const PID: &str = "pid";
-const TIME: &str = "time";
-const MESSAGE: &str = "msg";
-const _SOURCE: &str = "src";
+const LOG_LEVEL: &str = "log.level";
+const TIMESTAMP: &str = "@timestamp";
+const SERVICE_NAME: &str = "service.name";
+const MESSAGE: &str = "message";
 
-const BUNYAN_RESERVED_FIELDS: [&str; 7] =
-    [BUNYAN_VERSION, LEVEL, NAME, HOSTNAME, PID, TIME, MESSAGE];
-
-/// Convert from log levels to Bunyan's levels.
-fn to_bunyan_level(level: &Level) -> u16 {
-    match level.as_log() {
-        log::Level::Error => 50,
-        log::Level::Warn => 40,
-        log::Level::Info => 30,
-        log::Level::Debug => 20,
-        log::Level::Trace => 10,
-    }
-}
+const ECS_RESERVED_FIELDS: [&str; 4] = [LOG_LEVEL, TIMESTAMP, SERVICE_NAME, MESSAGE];
 
 /// This layer is exclusively concerned with formatting information using the [Bunyan format](https://github.com/trentm/node-bunyan).
 /// It relies on the upstream `JsonStorageLayer` to get access to the fields attached to
 /// each span.
 pub struct BunyanFormattingLayer<W: for<'a> MakeWriter<'a> + 'static> {
     make_writer: W,
-    pid: u32,
-    hostname: String,
-    bunyan_version: u8,
     name: String,
     default_fields: HashMap<String, Value>,
 }
@@ -82,9 +62,6 @@ impl<W: for<'a> MakeWriter<'a> + 'static> BunyanFormattingLayer<W> {
         Self {
             make_writer,
             name,
-            pid: get_pid(),
-            hostname: get_hostname(),
-            bunyan_version: 0,
             default_fields,
         }
     }
@@ -95,13 +72,10 @@ impl<W: for<'a> MakeWriter<'a> + 'static> BunyanFormattingLayer<W> {
         message: &str,
         level: &Level,
     ) -> Result<(), std::io::Error> {
-        map_serializer.serialize_entry(BUNYAN_VERSION, &self.bunyan_version)?;
-        map_serializer.serialize_entry(NAME, &self.name)?;
+        map_serializer.serialize_entry(LOG_LEVEL, &level.to_string().to_lowercase())?;
+        map_serializer.serialize_entry(SERVICE_NAME, &self.name)?;
         map_serializer.serialize_entry(MESSAGE, &message)?;
-        map_serializer.serialize_entry(LEVEL, &to_bunyan_level(level))?;
-        map_serializer.serialize_entry(HOSTNAME, &self.hostname)?;
-        map_serializer.serialize_entry(PID, &self.pid)?;
-        map_serializer.serialize_entry(TIME, &Utc::now().to_rfc3339())?;
+        map_serializer.serialize_entry(TIMESTAMP, &Utc::now().to_rfc3339())?;
         Ok(())
     }
 
@@ -119,17 +93,17 @@ impl<W: for<'a> MakeWriter<'a> + 'static> BunyanFormattingLayer<W> {
         // Additional metadata useful for debugging
         // They should be nested under `src` (see https://github.com/trentm/node-bunyan#src )
         // but `tracing` does not support nested values yet
-        map_serializer.serialize_entry("target", span.metadata().target())?;
-        map_serializer.serialize_entry("line", &span.metadata().line())?;
-        map_serializer.serialize_entry("file", &span.metadata().file())?;
+        // map_serializer.serialize_entry("target", span.metadata().target())?;
+        // map_serializer.serialize_entry("line", &span.metadata().line())?;
+        // map_serializer.serialize_entry("file", &span.metadata().file())?;
 
         // Add all default fields
         for (key, value) in self.default_fields.iter() {
-            if !BUNYAN_RESERVED_FIELDS.contains(&key.as_str()) {
+            if !ECS_RESERVED_FIELDS.contains(&key.as_str()) {
                 map_serializer.serialize_entry(key, value)?;
             } else {
                 tracing::debug!(
-                    "{} is a reserved field in the bunyan log format. Skipping it.",
+                    "{} is a reserved field in the ecs log format. Skipping it.",
                     key
                 );
             }
@@ -138,11 +112,11 @@ impl<W: for<'a> MakeWriter<'a> + 'static> BunyanFormattingLayer<W> {
         let extensions = span.extensions();
         if let Some(visitor) = extensions.get::<JsonStorage>() {
             for (key, value) in visitor.values() {
-                if !BUNYAN_RESERVED_FIELDS.contains(key) {
+                if !ECS_RESERVED_FIELDS.contains(key) {
                     map_serializer.serialize_entry(key, value)?;
                 } else {
                     tracing::debug!(
-                        "{} is a reserved field in the bunyan log format. Skipping it.",
+                        "{} is a reserved field in the ecs log format. Skipping it.",
                         key
                     );
                 }
@@ -254,13 +228,13 @@ where
             // Additional metadata useful for debugging
             // They should be nested under `src` (see https://github.com/trentm/node-bunyan#src )
             // but `tracing` does not support nested values yet
-            map_serializer.serialize_entry("target", event.metadata().target())?;
-            map_serializer.serialize_entry("line", &event.metadata().line())?;
-            map_serializer.serialize_entry("file", &event.metadata().file())?;
+            // map_serializer.serialize_entry("target", event.metadata().target())?;
+            // map_serializer.serialize_entry("line", &event.metadata().line())?;
+            // map_serializer.serialize_entry("file", &event.metadata().file())?;
 
             // Add all default fields
             for (key, value) in self.default_fields.iter().filter(|(key, _)| {
-                key.as_str() != "message" && !BUNYAN_RESERVED_FIELDS.contains(&key.as_str())
+                key.as_str() != "message" && !ECS_RESERVED_FIELDS.contains(&key.as_str())
             }) {
                 map_serializer.serialize_entry(key, value)?;
             }
@@ -269,7 +243,7 @@ where
             for (key, value) in event_visitor
                 .values()
                 .iter()
-                .filter(|(&key, _)| key != "message" && !BUNYAN_RESERVED_FIELDS.contains(&key))
+                .filter(|(&key, _)| key != "message" && !ECS_RESERVED_FIELDS.contains(&key))
             {
                 map_serializer.serialize_entry(key, value)?;
             }
@@ -279,11 +253,11 @@ where
                 let extensions = span.extensions();
                 if let Some(visitor) = extensions.get::<JsonStorage>() {
                     for (key, value) in visitor.values() {
-                        if !BUNYAN_RESERVED_FIELDS.contains(key) {
+                        if !ECS_RESERVED_FIELDS.contains(key) {
                             map_serializer.serialize_entry(key, value)?;
                         } else {
                             tracing::debug!(
-                                "{} is a reserved field in the bunyan log format. Skipping it.",
+                                "{} is a reserved field in the ecs log format. Skipping it.",
                                 key
                             );
                         }
@@ -313,24 +287,4 @@ where
             let _ = self.emit(serialized);
         }
     }
-}
-
-#[cfg(target_arch = "wasm32")]
-fn get_hostname() -> String {
-    "wasm".to_string()
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-fn get_hostname() -> String {
-    gethostname::gethostname().to_string_lossy().into_owned()
-}
-
-#[cfg(target_arch = "wasm32")]
-fn get_pid() -> u32 {
-    u32::MAX
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-fn get_pid() -> u32 {
-    std::process::id()
 }
