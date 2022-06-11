@@ -72,10 +72,11 @@ impl<W: for<'a> MakeWriter<'a> + 'static> BunyanFormattingLayer<W> {
         message: &str,
         level: &Level,
     ) -> Result<(), std::io::Error> {
-        map_serializer.serialize_entry(LOG_LEVEL, &level.to_string().to_lowercase())?;
-        map_serializer.serialize_entry(SERVICE_NAME, &self.name)?;
-        map_serializer.serialize_entry(MESSAGE, &message)?;
         map_serializer.serialize_entry(TIMESTAMP, &Utc::now().to_rfc3339())?;
+        map_serializer.serialize_entry(LOG_LEVEL, &level.to_string().to_lowercase())?;
+        map_serializer.serialize_entry(MESSAGE, &message)?;
+        map_serializer.serialize_entry(SERVICE_NAME, &self.name)?;
+
         Ok(())
     }
 
@@ -100,7 +101,7 @@ impl<W: for<'a> MakeWriter<'a> + 'static> BunyanFormattingLayer<W> {
         // Add all default fields
         for (key, value) in self.default_fields.iter() {
             if !ECS_RESERVED_FIELDS.contains(&key.as_str()) {
-                map_serializer.serialize_entry(key, value)?;
+                map_serializer.serialize_entry(&format!("labels.{key}"), value)?;
             } else {
                 tracing::debug!(
                     "{} is a reserved field in the ecs log format. Skipping it.",
@@ -113,7 +114,7 @@ impl<W: for<'a> MakeWriter<'a> + 'static> BunyanFormattingLayer<W> {
         if let Some(visitor) = extensions.get::<JsonStorage>() {
             for (key, value) in visitor.values() {
                 if !ECS_RESERVED_FIELDS.contains(key) {
-                    map_serializer.serialize_entry(key, value)?;
+                    map_serializer.serialize_entry(&format!("labels.{key}"), value)?;
                 } else {
                     tracing::debug!(
                         "{} is a reserved field in the ecs log format. Skipping it.",
@@ -236,7 +237,7 @@ where
             for (key, value) in self.default_fields.iter().filter(|(key, _)| {
                 key.as_str() != "message" && !ECS_RESERVED_FIELDS.contains(&key.as_str())
             }) {
-                map_serializer.serialize_entry(key, value)?;
+                map_serializer.serialize_entry(&format!("labels.{key}"), value)?;
             }
 
             // Add all the other fields associated with the event, expect the message we already used.
@@ -245,7 +246,7 @@ where
                 .iter()
                 .filter(|(&key, _)| key != "message" && !ECS_RESERVED_FIELDS.contains(&key))
             {
-                map_serializer.serialize_entry(key, value)?;
+                map_serializer.serialize_entry(&format!("labels.{key}"), value)?;
             }
 
             // Add all the fields from the current span, if we have one.
@@ -254,7 +255,7 @@ where
                 if let Some(visitor) = extensions.get::<JsonStorage>() {
                     for (key, value) in visitor.values() {
                         if !ECS_RESERVED_FIELDS.contains(key) {
-                            map_serializer.serialize_entry(key, value)?;
+                            map_serializer.serialize_entry(&format!("labels.{key}"), value)?;
                         } else {
                             tracing::debug!(
                                 "{} is a reserved field in the ecs log format. Skipping it.",
